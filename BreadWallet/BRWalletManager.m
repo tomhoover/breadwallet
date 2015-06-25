@@ -864,7 +864,7 @@ static NSString *getKeychainString(NSString *key, NSError **error)
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
         
         if (error || ! [json isKindOfClass:[NSDictionary class]] ||
-            ! [json[@"fee-per-kb"] isKindOfClass:[NSNumber class]]) {
+            ! [json[@"fee_per_kb"] isKindOfClass:[NSNumber class]]) {
             NSLog(@"unexpected response from %@:\n%@", req.URL.host,
                   [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
             return;
@@ -902,8 +902,8 @@ completion:(void (^)(NSArray *utxos, NSArray *amounts, NSArray *scripts, NSError
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
         NSMutableArray *utxos = [NSMutableArray array], *amounts = [NSMutableArray array],
                        *scripts = [NSMutableArray array];
-        NSMutableData *o = nil;
-                               
+        UTXO o;
+        
         if (error) {
             completion(nil, nil, nil, error);
             return;
@@ -932,9 +932,9 @@ completion:(void (^)(NSArray *utxos, NSArray *amounts, NSArray *scripts, NSError
             }
             
             if (! [utxo[@"script_type"] isEqual:@"pubkeyhash"] && ! [utxo[@"script_type"] isEqual:@"pubkey"]) continue;
-            o = [NSMutableData dataWithData:[[utxo[@"transaction_hash"] hexToData] reverse]];
-            [o appendUInt32:[utxo[@"output_index"] unsignedIntValue]];
-            [utxos addObject:o];
+            o.hash = *(const UInt256 *)[[[utxo[@"transaction_hash"] hexToData] reverse] bytes];
+            o.n = [utxo[@"output_index"] unsignedIntValue];
+            [utxos addObject:utxo_obj(o)];
             [amounts addObject:utxo[@"value"]];
             [scripts addObject:[utxo[@"script_hex"] hexToData]];
         }
@@ -990,8 +990,11 @@ completion:(void (^)(BRTransaction *tx, uint64_t fee, NSError *error))completion
         }
 
         //TODO: make sure not to create a transaction larger than TX_MAX_SIZE
-        for (NSData *o in utxos) {
-            [tx addInputHash:[o hashAtOffset:0] index:[o UInt32AtOffset:CC_SHA256_DIGEST_LENGTH] script:scripts[i]];
+        for (NSValue *output in utxos) {
+            UTXO o;
+            
+            [output getValue:&o];
+            [tx addInputHash:o.hash index:o.n script:scripts[i]];
             balance += [amounts[i++] unsignedLongLongValue];
         }
      
